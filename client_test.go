@@ -45,7 +45,9 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(f.status)
-	io.WriteString(w, f.reply)
+	if _, err := io.WriteString(w, f.reply); err != nil {
+		f.t.Errorf("write reply: %v", err)
+	}
 }
 
 const paidPayment = `{
@@ -101,7 +103,7 @@ func TestClient_GetPayment(t *testing.T) {
 	if f.method != http.MethodGet || f.path != "/payments/order%2F1" || f.query.Get("storeId") != "store-abc" {
 		t.Errorf("request = %s %s?%s, want GET /payments/order%%2F1?storeId=store-abc", f.method, f.path, f.query.Encode())
 	}
-	if f.auth != "PortOne secret-123" || f.userAgent != "go-portone/"+Version {
+	if f.auth != "PortOne secret-123" || !strings.HasPrefix(f.userAgent, "go-portone") {
 		t.Errorf("headers: Authorization = %q, User-Agent = %q", f.auth, f.userAgent)
 	}
 

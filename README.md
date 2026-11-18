@@ -127,7 +127,7 @@ PortOne retries failed deliveries, and a webhook can arrive before or after the 
 | `WithStoreID(id)` | none |
 | `WithBaseURL(url)` | `https://api.portone.io` |
 | `WithHTTPClient(c)` | `http.Client` with a 30s timeout |
-| `WithUserAgent(ua)` | `go-portone/<version>` |
+| `WithUserAgent(ua)` | `go-portone/<module version>`, e.g. `go-portone/v1.0.2` |
 
 ## Differences from the official SDKs
 
@@ -148,7 +148,7 @@ go vet ./... && go test -race ./...
 
 `SpecVersion` holds the spec version the package was generated from. Never edit `*.gen.go` by hand; CI fails when they differ from the generator's output.
 
-To release, set `Version` in `client.go`, add the version to `CHANGELOG.md`, merge to `main`, then push a matching tag (`git tag v1.2.0 && git push origin v1.2.0`). The release workflow refuses a tag that doesn't match `Version`, runs the tests, creates the GitHub Release and publishes the version to the Go module proxy. `govulncheck` runs on every push and weekly.
+To release, add the version to `CHANGELOG.md`, merge to `main`, then push a tag (`git tag v1.2.0 && git push origin v1.2.0`). The release workflow runs the tests, creates the GitHub Release and publishes the version to the Go module proxy. The User-Agent picks the version up from the build, so there is no version constant to bump. `govulncheck` runs on every push and weekly.
 
 ## License
 

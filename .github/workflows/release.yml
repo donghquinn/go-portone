@@ -15,15 +15,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: stable
-      - name: Tag matches portone.Version
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' client.go)
-          if [ "v${version}" != "${TAG}" ]; then
-            echo "::error file=client.go::tag ${TAG} does not match const Version = \"${version}\""
-            exit 1
-          fi
       - name: Generated code is up to date
         run: |
           go generate ./...

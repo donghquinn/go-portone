@@ -127,7 +127,7 @@ http.HandleFunc("/portone/webhook", func(w http.ResponseWriter, r *http.Request)
 | `WithStoreID(id)` | 없음 |
 | `WithBaseURL(url)` | `https://api.portone.io` |
 | `WithHTTPClient(c)` | 타임아웃 30초인 `http.Client` |
-| `WithUserAgent(ua)` | `go-portone/<version>` |
+| `WithUserAgent(ua)` | `go-portone/<모듈 버전>` (예: `go-portone/v1.0.2`) |
 
 ## 공식 SDK와의 차이
 
@@ -148,7 +148,7 @@ go vet ./... && go test -race ./...
 
 `SpecVersion`에 생성에 사용된 스펙 버전이 들어 있습니다. `*.gen.go`는 직접 수정하지 마세요. 생성기 출력과 다르면 CI가 실패합니다.
 
-릴리스하려면 `client.go`의 `Version`을 바꾸고 `CHANGELOG.md`에 버전을 추가한 뒤 `main`에 병합하고, 같은 버전의 태그를 푸시합니다 (`git tag v1.2.0 && git push origin v1.2.0`). 릴리스 워크플로는 태그가 `Version`과 다르면 중단하고, 테스트를 실행한 뒤 GitHub Release를 만들고 Go 모듈 프록시에 버전을 게시합니다. `govulncheck`는 모든 푸시와 매주 실행됩니다.
+릴리스하려면 `CHANGELOG.md`에 버전을 추가한 뒤 `main`에 병합하고 태그를 푸시합니다 (`git tag v1.2.0 && git push origin v1.2.0`). 릴리스 워크플로는 테스트를 실행한 뒤 GitHub Release를 만들고 Go 모듈 프록시에 버전을 게시합니다. User-Agent는 빌드 정보에서 버전을 가져오므로 따로 올릴 버전 상수가 없습니다. `govulncheck`는 모든 푸시와 매주 실행됩니다.
 
 ## 라이선스
 

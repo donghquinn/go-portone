@@ -23,12 +23,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 )
 
-// Version is this SDK's version, sent in the User-Agent header.
-const Version = "1.1.0"
+const _modulePath = "github.com/donghquinn/go-portone"
 
 // DefaultBaseURL is the PortOne V2 API server.
 const DefaultBaseURL = "https://api.portone.io"
@@ -78,7 +78,7 @@ type userAgentOption string
 
 func (o userAgentOption) apply(c *config) { c.userAgent = string(o) }
 
-// WithUserAgent replaces the User-Agent header. Default: "go-portone/" + [Version].
+// WithUserAgent replaces the User-Agent header. Default: "go-portone/" + the module version, e.g. "go-portone/v1.0.2".
 func WithUserAgent(userAgent string) Option { return userAgentOption(userAgent) }
 
 // NewClient returns a client authenticated with an API secret issued in the PortOne console.
@@ -89,7 +89,7 @@ func NewClient(apiSecret string, opts ...Option) (*Client, error) {
 	cfg := &config{
 		secret:     apiSecret,
 		baseURL:    DefaultBaseURL,
-		userAgent:  "go-portone/" + Version,
+		userAgent:  defaultUserAgent(),
 		httpClient: &http.Client{Timeout: _defaultTimeout},
 	}
 	for _, opt := range opts {
@@ -102,6 +102,27 @@ func NewClient(apiSecret string, opts ...Option) (*Client, error) {
 		return nil, errors.New("portone: http client is nil")
 	}
 	return newClient(cfg), nil
+}
+
+// defaultUserAgent names the SDK and, when the build records it, the module version a program depends on.
+func defaultUserAgent() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "go-portone"
+	}
+	version := info.Main.Version // when this module is the main module, e.g. in its own tests
+	for _, dep := range info.Deps {
+		if dep.Path == _modulePath {
+			version = dep.Version
+			if dep.Replace != nil {
+				version = dep.Replace.Version
+			}
+		}
+	}
+	if version == "" || version == "(devel)" {
+		return "go-portone"
+	}
+	return "go-portone/" + version
 }
 
 // Ptr returns a pointer to v, for optional request fields: portone.Ptr(int64(1000)).
@@ -137,7 +158,7 @@ func (c *config) do(ctx context.Context, method, path string, query url.Values, 
 	if err != nil {
 		return nil, fmt.Errorf("portone: %s %s: %w", method, path, err)
 	}
-	defer res.Body.Close()
+	defer res.Body.Close() //nolint:errcheck // read-only body; a close error changes nothing
 
 	raw, err := io.ReadAll(io.LimitReader(res.Body, _maxResponseSize+1))
 	if err != nil {

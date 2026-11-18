@@ -17,7 +17,7 @@ import (
 // handWritten are exported or package-level names declared outside generated files.
 var handWritten = []string{
 	"Client", "NewClient", "Option", "WithStoreID", "WithBaseURL", "WithHTTPClient", "WithUserAgent",
-	"APIError", "Ptr", "UnrecognizedVariant", "Version", "DefaultBaseURL",
+	"APIError", "Ptr", "UnrecognizedVariant", "DefaultBaseURL",
 	"Webhook", "WebhookType", "WebhookVerifier", "NewWebhookVerifier", "VerifyWebhook", "SignWebhook", "WebhookTolerance",
 	"WebhookTransaction", "WebhookTransactionData", "WebhookBillingKey", "WebhookBillingKeyData",
 }

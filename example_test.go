@@ -15,8 +15,8 @@ import (
 
 func ExampleNewClient() {
 	// A fake API server stands in for https://api.portone.io.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"status":"PAID","id":"order-1","amount":{"total":15000,"paid":15000}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"PAID","id":"order-1","amount":{"total":15000,"paid":15000}}`)
 	}))
 	defer srv.Close()
 
@@ -41,9 +41,9 @@ func ExampleNewClient() {
 }
 
 func ExampleAPIError() {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		io.WriteString(w, `{"type":"PAYMENT_NOT_FOUND","message":"결제 건이 존재하지 않습니다."}`)
+		_, _ = io.WriteString(w, `{"type":"PAYMENT_NOT_FOUND","message":"결제 건이 존재하지 않습니다."}`)
 	}))
 	defer srv.Close()
 	client, err := portone.NewClient("api-secret", portone.WithBaseURL(srv.URL))
