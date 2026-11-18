@@ -1,0 +1,6 @@
+go-portone
+Copyright (c) donghquinn
+
+internal/codegen/openapi.json is copied from https://github.com/portone-io/server-sdk
+(codegen/openapi.json), which PortOne distributes under the MIT License or the Apache License 2.0,
+at your option. The generated *.gen.go files are derived from it.

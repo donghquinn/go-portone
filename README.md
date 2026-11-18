@@ -1,74 +1,100 @@
-# portone
+# go-portone
 
-A small Go client for the [PortOne V2 REST API](https://developers.portone.io/api/rest-v2): the server-side half of a payment the browser SDK started.
+**English** | [한국어](./README.ko.md)
 
-- **Payments**: look a payment up to verify it, pre-register the expected amount, cancel (refund)
-- **Escrow**: register / modify shipping, confirm the purchase
-- **Webhooks**: [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks) signature verification, with secret rotation
-- **Zero dependencies**: standard library only
+[![Go Reference](https://pkg.go.dev/badge/github.com/donghquinn/go-portone.svg)](https://pkg.go.dev/github.com/donghquinn/go-portone) [![Test](https://img.shields.io/github/actions/workflow/status/donghquinn/go-portone/test.yml?branch=main)](https://github.com/donghquinn/go-portone/actions) [![Go Version](https://img.shields.io/github/go-mod/go-version/donghquinn/go-portone)](https://go.dev/) [![License](https://img.shields.io/github/license/donghquinn/go-portone)](./LICENSE)
 
-## Installation
+A Go server SDK for the [PortOne V2 REST API](https://developers.portone.io/api/rest-v2), generated from the same OpenAPI document as PortOne's official [server SDKs](https://github.com/portone-io/server-sdk) (JavaScript, Python, JVM). Unofficial; not maintained by PortOne.
+
+- All 142 REST operations the official SDKs expose, grouped the same way (`client.Payment.BillingKey...`)
+- Typed requests, responses and errors, with Korean doc comments from the spec
+- Webhook verification ([Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks)) with secret rotation
+- Standard library only, Go 1.22+
+
+## Getting started
 
 ```bash
-go get github.com/donghquinn/pg/portone
+go get github.com/donghquinn/go-portone
 ```
 
-## Usage
-
 ```go
-client := portone.New(os.Getenv("PORTONE_API_SECRET"),
-	portone.WithStoreID(os.Getenv("PORTONE_STORE_ID")))
-```
+client, err := portone.NewClient(os.Getenv("PORTONE_API_SECRET"))
+if err != nil {
+	log.Fatal(err)
+}
 
-### Verify a payment before trusting the browser
-
-The browser SDK reports success, but anyone can call your "payment done" endpoint. Look the payment up and compare it with your order.
-
-```go
-// Before opening the payment window: PortOne rejects a payment for any other amount.
-err := client.PreRegisterPayment(ctx, order.PaymentID, portone.PreRegisterRequest{
-	TotalAmount: order.Amount, Currency: portone.CurrencyKRW,
-})
-
-// After the browser returns (or on a webhook):
-p, err := client.GetPayment(ctx, order.PaymentID)
-switch {
-case portone.IsNotFound(err):
-	// never paid
-case err != nil:
-	// retry later
-case p.IsPaid() && p.Amount.Total == order.Amount && p.Currency == portone.CurrencyKRW:
+payment, err := client.Payment.GetPayment(ctx, paymentID)
+if err != nil {
+	return err
+}
+if paid, ok := payment.(*portone.PaidPayment); ok && paid.Amount.Total == order.Amount {
 	// mark the order paid
 }
 ```
 
-### Cancel (refund)
+## Usage
+
+### Clients
+
+`Client` groups the APIs like the official SDKs: `Auth`, `B2b` (`Counterparty`, `TaxInvoice`), `IdentityVerification`, `Payment` (`AdditionalFeature`, `BillingKey`, `CashReceipt`, `PaymentSchedule`, `Promotion`), `PgSpecific`, `Platform` (`Account`, `AccountTransfer`, `BulkAccountTransfer`, `BulkPayout`, `Company`, `Partner`, `PartnerSettlement`, `Payout`, `Policy`, `Transfer`) and `Reconciliation`. Method names are the API's operation IDs: `getPayment` → `GetPayment`.
+
+A method takes path parameters, then the request body, then the query parameters (a `*XxxParams`, which may be `nil`):
 
 ```go
-amount := order.Amount // what you believe is still cancellable
-c, err := client.CancelPayment(ctx, paymentID, portone.CancelRequest{
-	Reason:                   "판매자 거절",
-	Requester:                portone.CancelRequesterAdmin,
-	CurrentCancellableAmount: &amount, // refuses if someone else cancelled in between
+res, err := client.Payment.CancelPayment(ctx, paymentID, portone.CancelPaymentBody{
+	Reason:                   "고객 요청",
+	Amount:                   portone.Ptr(int64(5000)),    // nil cancels everything left
+	CurrentCancellableAmount: portone.Ptr(int64(150000)), // refuse if someone cancelled in between
+})
+
+_, err = client.Payment.BillingKey.DeleteBillingKey(ctx, billingKey, &portone.DeleteBillingKeyParams{
+	Reason: portone.Ptr("회원 탈퇴"),
 })
 ```
 
-Leave `Amount` nil to cancel everything that remains.
+Optional fields are pointers; `portone.Ptr` makes one from a value.
 
-### Escrow
+### Store ID
+
+With `portone.WithStoreID(id)`, every request that takes a store ID sends it. A request body that sets `StoreID` itself wins, so a platform can address several stores with one client.
+
+### One-of types
+
+The API's one-of types (payment statuses, payment methods, cancellations, …) are interfaces. Use a type switch:
 
 ```go
-// Seller shipped: BEFORE_REGISTERED → REGISTERED
-_, err := client.RegisterEscrowLogistics(ctx, paymentID, portone.EscrowLogisticsRequest{
-	Receiver:  &portone.EscrowReceiver{Name: "구매자", PhoneNumber: "01012345678", Zipcode: "06236"},
-	Logistics: portone.Logistics{Company: portone.LogisticsCJ, InvoiceNumber: "123456789012", SentAt: time.Now()},
-})
-
-// Buyer pressed "구매 확정" in your app: the PG settles to the seller.
-completedAt, err := client.ConfirmEscrow(ctx, paymentID, true)
+switch p := payment.(type) {
+case *portone.PaidPayment:
+	// p.PaidAt, p.Method, p.ReceiptURL, …
+case *portone.VirtualAccountIssuedPayment:
+	// waiting for the deposit
+case *portone.CancelledPayment, *portone.PartialCancelledPayment:
+	// refunded
+case *portone.UnrecognizedVariant:
+	// a status added after this SDK was generated: p.Discriminator, p.Raw
+}
 ```
 
-`p.Escrow.Status` on a looked-up payment tells you where it is (`BEFORE_REGISTERED`, `REGISTERED`, `DELIVERED`, `CONFIRMED`, …). The PG may also confirm automatically after its deadline; `IsAutomaticallyConfirmed` is then true.
+`UnrecognizedVariant` keeps an unknown variant as received, so an API change does not break decoding. Values re-encode with `json.Marshal`, discriminator included.
+
+### Errors
+
+A non-2xx response is an `*APIError` (status code, `Type`, `Message`, raw `Body`). When the type is one the operation documents, it wraps a typed error, reachable with `errors.As`:
+
+```go
+var notFound *portone.PaymentNotFoundError
+var pgErr *portone.PgProviderError
+switch {
+case errors.As(err, &notFound):
+	// unknown payment ID
+case errors.As(err, &pgErr):
+	log.Printf("PG refused: %s %s", pgErr.PgCode, pgErr.PgMessage)
+case err != nil:
+	// network error, context cancelled, or another *APIError
+}
+```
+
+Each method's doc comment lists the error types it can return.
 
 ### Webhooks
 
@@ -84,46 +110,44 @@ http.HandleFunc("/portone/webhook", func(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid webhook", http.StatusBadRequest)
 		return
 	}
-	if hook.IsTransaction() {
-		// Data has only IDs: look the payment up with GetPayment before acting.
-		syncPayment(r.Context(), hook.Data.PaymentID)
+	if tx, ok := hook.(*portone.WebhookTransaction); ok {
+		// Webhooks carry only IDs: look the payment up before acting.
+		syncPayment(r.Context(), tx.Data.PaymentID)
 	}
 	w.WriteHeader(http.StatusOK)
 })
 ```
 
-PortOne retries a failed delivery up to 5 times, and webhooks can arrive before or after the browser redirect, so make your handler idempotent. `SignWebhook` produces the same signature PortOne sends, for testing your handler.
-
-### Errors
-
-Non-2xx responses are `*portone.APIError` with the API's `Type` (`PAYMENT_NOT_FOUND`, `PG_PROVIDER`, …) and, for PG errors, `PgCode`/`PgMessage`:
-
-```go
-var apiErr *portone.APIError
-if errors.As(err, &apiErr) && apiErr.Type == portone.ErrTypePgProvider {
-	log.Printf("PG refused: %s %s", apiErr.PgCode, apiErr.PgMessage)
-}
-```
-
-Network errors and context cancellation are returned as-is.
+PortOne retries failed deliveries, and a webhook can arrive before or after the browser redirect, so make the handler idempotent. `SignWebhook` produces the signature PortOne sends, for testing handlers.
 
 ### Options
 
 | Option | Default |
 | --- | --- |
-| `WithStoreID(id)` | none (required when one API secret serves several stores) |
+| `WithStoreID(id)` | none |
 | `WithBaseURL(url)` | `https://api.portone.io` |
 | `WithHTTPClient(c)` | `http.Client` with a 30s timeout |
-| `WithUserAgent(ua)` | `donghquinn-pg-portone` |
+| `WithUserAgent(ua)` | `go-portone/<version>` |
 
-## Testing
+## Differences from the official SDKs
+
+- Request bodies are the spec's named body types (`CancelPaymentBody`) instead of flattened keyword arguments.
+- Errors are decoded through each operation's own error one-of, following the spec exactly.
+- Webhooks decode into `WebhookTransaction` / `WebhookBillingKey` with a `Type` field rather than one type per event, and any `Transaction.*` or `BillingKey.*` type added later still decodes.
+- `getBankInfos` is left out, as in the official SDKs.
+
+## Development
+
+The `*.gen.go` files come from [`internal/codegen`](./internal/codegen), which reads `internal/codegen/openapi.json`, a copy of [upstream's spec](https://github.com/portone-io/server-sdk/blob/main/codegen/openapi.json). To pick up API changes:
 
 ```bash
-go test -race ./...
+curl -fsSL https://raw.githubusercontent.com/portone-io/server-sdk/main/codegen/openapi.json -o internal/codegen/openapi.json
+go generate ./...
+go vet ./... && go test -race ./...
 ```
 
-Request and response shapes follow PortOne's published OpenAPI schema (`https://developers.portone.io/schema/v2.openapi.json`); the webhook signer is checked against the Standard Webhooks test vector.
+`SpecVersion` holds the spec version the package was generated from. Never edit `*.gen.go` by hand; CI fails when they differ from the generator's output.
 
 ## License
 
-MIT
+[MIT](./LICENSE). The OpenAPI document is PortOne's, distributed under MIT/Apache-2.0 with their server SDKs; see [NOTICE](./NOTICE).

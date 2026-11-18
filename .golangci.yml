@@ -1,0 +1,12 @@
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - govet
+    - revive
+    - staticcheck
+  exclusions:
+    generated: lax
+formatters:
+  enable:
+    - goimports

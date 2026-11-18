@@ -106,8 +106,12 @@ func TestVerifyRotationAndPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("either secret: %v", err)
 	}
-	if w.Type != WebhookTransactionPaid || !w.IsTransaction() || w.Data.PaymentID != "order-1" || w.Data.StoreID != "store-abc" || w.Timestamp.IsZero() {
-		t.Errorf("payload: %+v", w)
+	tx, ok := w.(*WebhookTransaction)
+	if !ok {
+		t.Fatalf("Verify() = %T, want *WebhookTransaction", w)
+	}
+	if tx.Type != WebhookTypeTransactionPaid || tx.Data.PaymentID != "order-1" || tx.Data.StoreID != "store-abc" || tx.Timestamp.IsZero() {
+		t.Errorf("payload: %+v", tx)
 	}
 
 	// The prefix is optional.
@@ -120,5 +124,75 @@ func TestVerifyRotationAndPayload(t *testing.T) {
 	}
 	if _, err := NewWebhookVerifier(""); !errors.Is(err, ErrWebhookBadSecret) {
 		t.Errorf("no secret: %v", err)
+	}
+}
+
+func TestVerify_payloadTypes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		giveBody string
+		check    func(t *testing.T, w Webhook)
+	}{
+		{
+			name:     "cancellation",
+			giveBody: `{"type":"Transaction.Cancelled","timestamp":"2026-10-27T01:00:05Z","data":{"storeId":"s","paymentId":"p","transactionId":"t","cancellationId":"c-1"}}`,
+			check: func(t *testing.T, w Webhook) {
+				tx, ok := w.(*WebhookTransaction)
+				if !ok || tx.Type != WebhookTypeTransactionCancelled || tx.Data.CancellationID == nil || *tx.Data.CancellationID != "c-1" {
+					t.Errorf("Verify() = %#v", w)
+				}
+			},
+		},
+		{
+			name:     "billing key",
+			giveBody: `{"type":"BillingKey.Issued","timestamp":"2026-10-27T01:00:05Z","data":{"storeId":"s","billingKey":"bk-1"}}`,
+			check: func(t *testing.T, w Webhook) {
+				bk, ok := w.(*WebhookBillingKey)
+				if !ok || bk.Type != WebhookTypeBillingKeyIssued || bk.Data.BillingKey != "bk-1" {
+					t.Errorf("Verify() = %#v", w)
+				}
+			},
+		},
+		{
+			name:     "unknown type",
+			giveBody: `{"type":"TaxInvoice.Issued","timestamp":"2026-10-27T01:00:05Z","data":{}}`,
+			check: func(t *testing.T, w Webhook) {
+				if u, ok := w.(*UnrecognizedVariant); !ok || u.Discriminator != "TaxInvoice.Issued" {
+					t.Errorf("Verify() = %#v", w)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			sig, err := SignWebhook(vectorSecret, "msg_1", now, []byte(tt.giveBody))
+			if err != nil {
+				t.Fatal(err)
+			}
+			w, err := verifierAt(t, now.Unix(), vectorSecret).Verify([]byte(tt.giveBody), headers("msg_1", now.Unix(), sig))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt.check(t, w)
+		})
+	}
+}
+
+func TestVerify_invalidPayload(t *testing.T) {
+	t.Parallel()
+	body := []byte("not json")
+	now := time.Now()
+	sig, err := SignWebhook(vectorSecret, "msg_1", now, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = VerifyWebhook(vectorSecret, body, headers("msg_1", now.Unix(), sig))
+
+	if !errors.Is(err, ErrWebhookPayload) {
+		t.Errorf("VerifyWebhook() error = %v, want ErrWebhookPayload", err)
 	}
 }

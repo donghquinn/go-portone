@@ -1,46 +1,78 @@
 package portone
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
-)
-
-// Error types returned by the API (the "type" field). Not exhaustive: the API may add more.
-const (
-	ErrTypeInvalidRequest            = "INVALID_REQUEST"
-	ErrTypeUnauthorized              = "UNAUTHORIZED"
-	ErrTypeForbidden                 = "FORBIDDEN"
-	ErrTypePaymentNotFound           = "PAYMENT_NOT_FOUND"
-	ErrTypePaymentNotPaid            = "PAYMENT_NOT_PAID"
-	ErrTypePaymentAlreadyCancelled   = "PAYMENT_ALREADY_CANCELLED"
-	ErrTypeAlreadyPaid               = "ALREADY_PAID"
-	ErrTypePgProvider                = "PG_PROVIDER"
-	ErrTypeCancelAmountExceeds       = "CANCEL_AMOUNT_EXCEEDS_CANCELLABLE_AMOUNT"
-	ErrTypeCancellableAmountMismatch = "CANCELLABLE_AMOUNT_CONSISTENCY_BROKEN"
+	"strings"
 )
 
 // APIError is a non-2xx response from the API.
+//
+// When the response's "type" is one this SDK knows, Err holds the typed error (e.g. [*PaymentNotFoundError],
+// [*PgProviderError]), so errors.As reaches it through the APIError:
+//
+//	var notFound *portone.PaymentNotFoundError
+//	if errors.As(err, &notFound) { ... }
 type APIError struct {
-	StatusCode int    `json:"-"`
-	Type       string `json:"type"`
-	Message    string `json:"message,omitempty"`
-	// PgCode and PgMessage are set for PG_PROVIDER errors (the PG rejected the request).
-	PgCode    string `json:"pgCode,omitempty"`
-	PgMessage string `json:"pgMessage,omitempty"`
+	StatusCode int
+	// Type is the API's error type, e.g. "PAYMENT_NOT_FOUND". Empty if the body was not a PortOne error.
+	Type    string
+	Message string
+	// Body is the raw response body.
+	Body []byte
+	// Err is the typed error decoded from Body, or nil for an error type this SDK version does not know.
+	Err error
 }
 
 func (e *APIError) Error() string {
-	if e.PgCode != "" {
-		return fmt.Sprintf("portone: %d %s: %s (pg %s: %s)", e.StatusCode, e.Type, e.Message, e.PgCode, e.PgMessage)
+	if e.Type == "" {
+		return fmt.Sprintf("portone: http %d: %s", e.StatusCode, truncate(strings.TrimSpace(string(e.Body)), 200))
 	}
-	return fmt.Sprintf("portone: %d %s: %s", e.StatusCode, e.Type, e.Message)
+	return fmt.Sprintf("portone: http %d: %s: %s", e.StatusCode, e.Type, e.Message)
 }
 
-// IsErrorType reports whether err is (or wraps) an *APIError of the given type.
-func IsErrorType(err error, errType string) bool {
-	var apiErr *APIError
-	return errors.As(err, &apiErr) && apiErr.Type == errType
+// Unwrap returns the typed error, if any.
+func (e *APIError) Unwrap() error { return e.Err }
+
+func newAPIError(status int, body []byte, decodeErr func([]byte) error) *APIError {
+	e := &APIError{StatusCode: status, Body: body}
+	var head struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &head) != nil {
+		return e
+	}
+	e.Type, e.Message = head.Type, head.Message
+	e.Err = decodeErr(body)
+	return e
 }
 
-// IsNotFound reports whether err means the payment does not exist.
-func IsNotFound(err error) bool { return IsErrorType(err, ErrTypePaymentNotFound) }
+// errorDecoder adapts an operation's error one-of decoder. Unknown or undecodable errors yield nil.
+func errorDecoder[E error](decode func([]byte) (E, error)) func([]byte) error {
+	return func(b []byte) error {
+		e, err := decode(b)
+		if err != nil {
+			return nil
+		}
+		if _, ok := any(e).(*UnrecognizedVariant); ok {
+			return nil
+		}
+		return e
+	}
+}
+
+// errorString formats a typed API error.
+func errorString(typ string, message *string) string {
+	if message == nil || *message == "" {
+		return "portone: " + typ
+	}
+	return "portone: " + typ + ": " + *message
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
