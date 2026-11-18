@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - name: Tag matches portone.Version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' client.go)
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error file=client.go::tag ${TAG} does not match const Version = \"${version}\""
+            exit 1
+          fi
+      - name: Generated code is up to date
+        run: |
+          go generate ./...
+          git diff --exit-code
+      - run: go vet ./...
+      - run: go test -race -shuffle=on ./...
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish to the Go module proxy
+        env:
+          MODULE: github.com/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd "$(mktemp -d)"
+          GOPROXY=https://proxy.golang.org go list -m "${MODULE}@${TAG}"

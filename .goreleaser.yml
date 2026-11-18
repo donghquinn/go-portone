@@ -1,0 +1,16 @@
+version: 2
+
+# A library: no binaries, only a GitHub Release with notes.
+builds:
+  - skip: true
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:", "^chore:"]
+
+release:
+  footer: |
+    Install: `go get github.com/donghquinn/go-portone@{{ .Tag }}`
+
+    See [CHANGELOG.md](https://github.com/donghquinn/go-portone/blob/{{ .Tag }}/CHANGELOG.md) for details.

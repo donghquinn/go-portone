@@ -148,6 +148,8 @@ go vet ./... && go test -race ./...
 
 `SpecVersion` holds the spec version the package was generated from. Never edit `*.gen.go` by hand; CI fails when they differ from the generator's output.
 
+To release, set `Version` in `client.go`, add the version to `CHANGELOG.md`, merge to `main`, then push a matching tag (`git tag v1.2.0 && git push origin v1.2.0`). The release workflow refuses a tag that doesn't match `Version`, runs the tests, creates the GitHub Release and publishes the version to the Go module proxy. `govulncheck` runs on every push and weekly.
+
 ## License
 
 [MIT](./LICENSE). The OpenAPI document is PortOne's, distributed under MIT/Apache-2.0 with their server SDKs; see [NOTICE](./NOTICE).
